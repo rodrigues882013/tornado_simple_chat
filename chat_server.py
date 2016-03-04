@@ -14,14 +14,38 @@ from tornado.web import Application
 from tornado.escape import json_decode, to_basestring
 
 
+waiters = set()
+
+
+def ws_send(url, message):
+    
+    ''' this method no used to client-to-client connectecion, but client -> server -> server-msg -> clients '''
+
+    params = urllib.urlencode(dict(message=message))
+    f = urllib.urlopen(url, params)
+    data = f.read()
+    f.close()
+    return data
+
+
 class SimpleChatPostHandler(RequestHandler):
 
-    def post(self, *args, **kwargs):
-        pass
+    ''' this handler no used to client-to-client connectecion, but client -> server -> server-msg -> clients '''
+
+    def data_received(self, chunk):
+                pass
+
+    def post(self):
+        if 'message' in self.request.arguments:
+            message = self.request.arguments['message'][0]
+            print '%s:MESSAGE to %s:' % (time.time(), message)
+
+                for waiter in waiters:
+                    waiter.write_message(message)
 
 
 class SimpleChatWSHandler(WebSocketHandler):
-    waiters = set()
+    
     cache = []
     cache_size = 200
 
@@ -41,34 +65,34 @@ class SimpleChatWSHandler(WebSocketHandler):
 
     @classmethod
     def send_updates(cls, chat):
-        logging.info("Sending messages to %d waiters", len(cls.waiters))
+        logging.info("Sending messages to %d waiters", len(waiters))
 
-        for waiter in cls.waiters:
+        for waiter in waiters:
             waiter.write_message(chat)
 
     def open(self):
         logging.info("New Connection")
-        self.waiters.add(self)
+        waiters.add(self)
 
     def on_message(self, message):
         logging.info("Got message %r", message)
 
         parsed = json_decode(message)
-        chat = dict(id=str(uuid.uiid4()), body=parsed['body'])
+        chat = dict(id=str(uuid.uuid4()), body=parsed)
 
         self.update_cache(chat)
         self.send_updates(chat)
 
-        # self.write_message(message)
-
+        
     def on_close(self):
-        self.waiters.remove(self)
+        waiters.remove(self)
 
 
 def main():
     logging.basicConfig(filename='simplechat.log', level=logging.DEBUG)
     application = Application([
         (r'/simplechat', SimplChatWSHandler),
+        ('r/', SimpleChatPostHandler)
     ])
 
     http_server = HTTPServer(application)
